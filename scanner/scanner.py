@@ -234,10 +234,6 @@ def detect_weak_password(session, login_url, username_field, password_field):
 def detect_directory_indexing(url):
     pass
 
-# 불충분한 인증 - 세션에 관한 것이 나오네요...
-def detect_insufficient_authentication(url):
-    pass
-
 
 # main - 수정 중
 def main(start_url):

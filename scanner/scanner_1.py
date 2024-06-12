@@ -139,6 +139,23 @@ def detect_xss(url, forms):
         if response and payload in response.text: # 페이로드가 포함되면 취약점 탐지
             print(f"Potential XSS at {form_action}")
 
+# directory indexing 취약점 탐지
+def detect_directory_indexing(url):
+    common_directories = [
+        "icons/", "images/", "pr/", "adm/", "files/", "download/", 
+        "file/attach/images/", "data/", "files/", "%3f.jsp"
+    ]
+
+    for directory in common_directories:
+        test_url = urljoin(url, directory)
+        try:
+            response = requests.get(test_url)
+            if "Index of" in response.text or "Parent Directory" in response.text:
+                print(f"Potential Directory Indexing at {test_url}")
+        except Exception as e:
+            print(f"Error testing Directory Indexing on {test_url}: {e}")
+
+
 # 불충분한 인증 점검
 def detect_insufficient_authentication(url, forms):
     payload = 'test'
@@ -221,32 +238,38 @@ def detect_location_disclosure(url, forms):
 # -------------------------------------------------------------------------------
             
 # 로그인 페이지 식별 함수(다른 메소드에 필요)
-def is_login_page(form):
+def is_login_page(url, form):
+    # URL에 'login' 또는 'signin' 문자열이 포함되어 있는지 확인
+    url_indicates_login = any(keyword in url.lower() for keyword in ['login', 'signin'])
+
+    # form 내의 input 태그 확인
     input_types = {input_tag.get('type', 'text').lower() for input_tag in form.find_all('input')}
-    return 'password' in input_types and ('text' in input_types or 'email' in input_types)
+    form_indicates_login = 'password' in input_types and ('text' in input_types or 'email' in input_types)
+
+    return url_indicates_login or form_indicates_login
 
 # 약한 문자열 강도 취약점
-def detect_weak_password(session, login_url, username_field, password_field):
+def detect_weak_password(session, url, forms):
     weak_passwords = [
         "admin", "administrator", "manager", "guest", "test", "scott", "tomcat", "root", "user", "operator", "anonymous",
         "abcd", "aaaa", "1234", "1111", "password", "public", "black"
     ]
     users = ["admin", "administrator", "manager", "guest", "test", "scott", "tomcat", "root", "user", "operator", "anonymous"]
 
-    for user in users:
-        for pwd in weak_passwords:
-            login_data = {username_field: user, password_field: pwd}
-            response = session.post(login_url, data=login_data)
-            if response.status_code == 200 and "login" not in response.text.lower():
-                print(f"Potential Weak Password for user '{user}' with password '{pwd}' at {login_url}")
-                return True
-    return False
+    for form in forms:
+        if is_login_page(url, form):
+            form_action = urljoin(url, form.get('action'))
+            username_field = next((input_tag.get('name') for input_tag in form.find_all('input') if input_tag.get('type') in ['text', 'email']), None)
+            password_field = next((input_tag.get('name') for input_tag in form.find_all('input') if input_tag.get('type') == 'password'), None)
 
-# directory indexing 취약점 탐지
-# 코드로 보기 애매한 것 같은데, 확인을 더 해봐야할 것 같습니다
-def detect_directory_indexing(url):
-    pass
-
+            if username_field and password_field:
+                for user in users:
+                    for pwd in weak_passwords:
+                        login_data = {username_field: user, password_field: pwd}
+                        response = session.post(form_action, data=login_data)
+                        if response.status_code == 200 and "login" not in response.text.lower():
+                            print(f"Potential Weak Password for user '{user}' with password '{pwd}' at {form_action}")
+                            break
 
 # main 함수
 def main(start_url):
@@ -258,7 +281,7 @@ def main(start_url):
         if url not in visited:
             visited.add(url)
             print(f"Crawling {url}")
-            new_urls, forms = crawl(url, visited)
+            new_urls, forms, sensitive_urls = crawl(url, visited)
             to_visit.update(new_urls - visited)
             
             print(f"Testing {url}")
@@ -271,7 +294,7 @@ def main(start_url):
             detect_malicious_content(url, forms)
             detect_xss(url, forms)
             detect_insufficient_authentication(url, forms)
-            detect_weak_password_recovery(url, forms)
+            ## detect_weak_password(session, url, forms)
             detect_csrf(url, forms)
             detect_insufficient_authorization(url, forms)
             detect_lack_of_process_validation(url, forms)
@@ -280,5 +303,34 @@ def main(start_url):
             detect_location_disclosure(url, forms)
 
 # 시작 URL 설정 및 실행
-start_url = "http://example.com"
+"""
+def main(start_url):
+    visited = set()
+    to_visit = {start_url}
+
+    session = requests.Session()
+    
+    while to_visit:
+        url = to_visit.pop()
+        if url not in visited:
+            visited.add(url)
+            print(f"Crawling {url}")
+            new_urls, forms, sensitive_urls = crawl(url, visited)
+            to_visit.update(new_urls - visited)
+            
+            print(f"Testing {url}")
+            detect_buffer_overflow(url, forms)
+            detect_ldap_injection(url, forms)
+            detect_sql_injection(url, forms)
+            detect_xpath_injection(url, forms)
+            detect_directory_indexing(url)
+            detect_information_disclosure(url)
+            detect_malicious_content(url, forms)
+            detect_xss(url, forms)
+            detect_weak_password(session, url, forms)
+
+# 시작 URL 설정 및 실행
+base_url = "http://example.com"
+start_url = urljoin(base_url, "/")
 main(start_url)
+"""

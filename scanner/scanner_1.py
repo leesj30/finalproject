@@ -1,23 +1,37 @@
 import requests
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
+import re
 
 # 크롤링 함수 (재귀적 크롤링)
 def crawl(url, visited):
-    urls = set()#크롤링을 시작할 url
-    forms = []# 이미 방문한 url을 저장하는 집합(중복방문 피하기용)
+    urls = set()
+    forms = []
     try:
         response = requests.get(url)
         soup = BeautifulSoup(response.text, 'html.parser')
         
         for a_tag in soup.find_all('a', href=True):
             link = urljoin(url, a_tag['href'])
-            # 도메인 내의 링크만 추가
             if urlparse(link).netloc == urlparse(url).netloc and link not in visited:
                 visited.add(link)
                 urls.add(link)
         
         forms.extend(soup.find_all('form'))
+
+        # 버튼 클릭으로 열리는 URL 찾기
+        for button in soup.find_all('button', onclick=True):
+            onclick = button['onclick']
+            # URL이 포함된 부분 추출
+            match = re.search(r"checkLogin\('([^']+)'\)", onclick)
+            if match:
+                target_url = match.group(1)
+                full_url = urljoin(url, target_url)
+                if full_url not in visited:
+                    visited.add(full_url)
+                    urls.add(full_url)
+        forms.extend(soup.find_all('form'))
+        
     except Exception as e:
         print(f"Error crawling {url}: {e}")
     

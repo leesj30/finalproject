@@ -3,200 +3,258 @@ from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse, parse_qs, urlencode
 import re
 import logging
+import string
 
 # 로깅 설정
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# 방문한 URL을 저장하는 집합과 공격 벡터를 저장하는 리스트
-visited_urls = set()
-attack_vectors = []
+# HTTP 세션 사용
+session = requests.Session()
 
-# 웹 크롤러 함수
-def crawl(url, base_url, depth=3):
-    # 깊이가 0이거나 이미 방문한 URL이거나 기본 URL로 시작하지 않는 경우 반환
-    if depth == 0 or url in visited_urls or not url.startswith(base_url):
-        return
-    visited_urls.add(url)
-    
-    try:
-        response = requests.get(url)
-        response.raise_for_status()
-    except requests.RequestException as e:
-        logger.error(f"Error during request to {url}: {e}")
-        return
+# 웹 스캐너 클래스
+class WebScanner:
+    def __init__(self, base_url, depth=3):
+        self.base_url = base_url
+        self.depth = depth
+        self.visited_urls = set()
+        self.attack_vectors = []
 
-    # HTML 파싱
-    soup = BeautifulSoup(response.text, 'html.parser')
+    def run_security_checks(self):
+        self.crawl(self.base_url, self.depth)
+        
+        for url, method, inputs in self.attack_vectors:
+            if self.check_sql_injection(url, method, inputs):
+                logger.info(f"SQL Injection vulnerability detected at {url}")
+            else:
+                logger.info(f"No SQL Injection vulnerability detected at {url}")
+        
+        if self.check_information_disclosure(self.base_url):
+            logger.info("Information Disclosure vulnerability detected.")
+        else:
+            logger.info("No Information Disclosure vulnerability detected.")
 
-    # 모든 폼 요소 수집
-    forms = soup.find_all('form')
-    for form in forms:
-        action = form.get('action')
-        method = form.get('method', 'get').lower()
-        inputs = form.find_all('input')
-        form_url = urljoin(base_url, action)
-        if check_url_existence(form_url):
-            attack_vectors.append((form_url, method, inputs))
+        if self.check_password_strength_policy(self.base_url):
+            logger.info("Password strength policy is weak or missing.")
+        else:
+            logger.info("Password strength policy is adequate.")
 
-    # 모든 링크 요소 수집 및 재귀적 크롤링
-    links = soup.find_all('a', href=True)
-    for link in links:
-        href = link.get('href')
-        next_url = urljoin(base_url, href)
-        if check_url_existence(next_url):  # 링크 유효성 검사 추가
-            crawl(next_url, base_url, depth - 1)
+        if self.check_location_exposure(self.base_url):
+            logger.info("Location Exposure vulnerability detected.")
+        else:
+            logger.info("No Location Exposure vulnerability detected.")
 
-    # URL 매개변수 공격 벡터 추가
-    parsed_url = urlparse(url)
-    query_params = parse_qs(parsed_url.query)
-    if query_params:
-        attack_vectors.append((url, 'get', query_params))
+    def crawl(self, url, depth):
+        if depth == 0 or url in self.visited_urls or not url.startswith(self.base_url):
+            return
+        self.visited_urls.add(url)
+        
+        try:
+            response = session.get(url, timeout=10)
+            response.raise_for_status()
+        except requests.RequestException as e:
+            logger.error(f"Error during request to {url}: {e}")
+            return
 
-# SQL 인젝션 탐지 함수
-def check_sql_injection(url, method, inputs):
-    # SQL 인젝션 페이로드와 에러 패턴 정의
-    error_payloads = ["'", '"', ";", "--", "/*", "*/", "#"]
-    boolean_true_payloads = ["1=1", "' OR '1'='1", "\" OR \"1\"=\"1"]
-    boolean_false_payloads = ["1=2", "' AND '1'='2", "\" AND \"1\"=\"2"]
-    union_payloads = ["UNION SELECT NULL", "UNION SELECT NULL, NULL", "UNION SELECT NULL, NULL, NULL"]
-    error_patterns = ["syntax error", "unexpected", "error in your SQL syntax"]
-    union_error_patterns = ["column", "syntax error", "number of columns"]
+        soup = BeautifulSoup(response.text, 'html.parser')
 
-    # 페이로드 그룹 정의
-    payloads = [
-        (error_payloads, error_patterns),
-        (boolean_true_payloads, [""]),
-        (boolean_false_payloads, [""]),
-        (union_payloads, union_error_patterns)
-    ]
+        forms = soup.find_all('form')
+        for form in forms:
+            action = form.get('action')
+            method = form.get('method', 'get').lower()
+            inputs = form.find_all('input')
+            form_url = urljoin(self.base_url, action)
+            if self.check_url_existence(form_url):
+                self.attack_vectors.append((form_url, method, inputs))
 
-    # 각 페이로드 그룹에 대해 SQL 인젝션 검사
-    for payload_group, patterns in payloads:
-        for payload in payload_group:
-            response = send_payload(url, method, inputs, payload)
-            if response and any(pattern in response.text.lower() for pattern in patterns):
-                logger.info(f"SQL Injection vulnerability detected at {url} with payload: {payload}")
-                return True
-    return False
+        links = soup.find_all('a', href=True)
+        for link in links:
+            href = link.get('href')
+            next_url = urljoin(self.base_url, href)
+            if self.check_url_existence(next_url):
+                self.crawl(next_url, depth - 1)
 
-# 페이로드 전송 함수
-def send_payload(url, method, inputs, payload):
-    if isinstance(inputs, dict):  # URL 매개변수인 경우
         parsed_url = urlparse(url)
         query_params = parse_qs(parsed_url.query)
-        for key in query_params:
-            query_params[key] = payload
-        encoded_query = urlencode(query_params, doseq=True)
-        attack_url = f"{parsed_url.scheme}://{parsed_url.netloc}{parsed_url.path}?{encoded_query}"
-    else:  # 폼 입력 필드인 경우
-        data = {inp.get('name'): payload for inp in inputs if inp.get('name')}
-        if method == 'post':
-            if not check_url_existence(url):
-                return None
-            try:
-                response = requests.post(url, data=data)
-                response.raise_for_status()
-                return response
-            except requests.RequestException as e:
-                logger.error(f"Error during POST request to {url} with data {data}: {e}")
-                return None
-        else:
+        if query_params:
+            self.attack_vectors.append((url, 'get', query_params))
+
+    def check_sql_injection(self, url, method, inputs):
+        payloads = [
+            (["'", '"', ";", "--", "/*", "*/", "#"], ["syntax error", "unexpected", "error in your SQL syntax"]),
+            (["1=1", "' OR '1'='1", "\" OR \"1\"=\"1"], [""]),
+            (["1=2", "' AND '1'='2", "\" AND \"1\"=\"2"], [""]),
+            (["UNION SELECT NULL", "UNION SELECT NULL, NULL", "UNION SELECT NULL, NULL, NULL"], ["column", "syntax error", "number of columns"]),
+            (["' OR SLEEP(5)--", "\" OR SLEEP(5)--"], [""]),
+        ]
+
+        for payload_group, patterns in payloads:
+            for payload in payload_group:
+                response = self.send_payload(url, method, inputs, payload)
+                if response:
+                    if "SLEEP" in payload and response.elapsed.total_seconds() > 5:
+                        logger.info(f"Time-based SQL Injection vulnerability detected at {url} with payload: {payload}")
+                        return True
+                    if any(pattern in response.text.lower() for pattern in patterns):
+                        logger.info(f"SQL Injection vulnerability detected at {url} with payload: {payload}")
+                        return True
+        return False
+
+    def send_payload(self, url, method, inputs, payload):
+        if isinstance(inputs, dict):
             parsed_url = urlparse(url)
             query_params = parse_qs(parsed_url.query)
-            for key in data:
+            for key in query_params:
                 query_params[key] = payload
             encoded_query = urlencode(query_params, doseq=True)
             attack_url = f"{parsed_url.scheme}://{parsed_url.netloc}{parsed_url.path}?{encoded_query}"
-    
-    try:
-        response = requests.get(attack_url)
-        response.raise_for_status()
-        return response
-    except requests.RequestException as e:
-        logger.error(f"Error during request to {attack_url}: {e}")
-        return None
+        else:
+            data = {inp.get('name'): payload for inp in inputs if inp.get('name')}
+            if method == 'post':
+                if not self.check_url_existence(url):
+                    return None
+                try:
+                    response = session.post(url, data=data, timeout=10)
+                    response.raise_for_status()
+                    return response
+                except requests.RequestException as e:
+                    logger.error(f"Error during POST request to {url} with data {data}: {e}")
+                    return None
+            else:
+                parsed_url = urlparse(url)
+                query_params = parse_qs(parsed_url.query)
+                for key in data:
+                    query_params[key] = payload
+                encoded_query = urlencode(query_params, doseq=True)
+                attack_url = f"{parsed_url.scheme}://{parsed_url.netloc}{parsed_url.path}?{encoded_query}"
+        
+        try:
+            response = session.get(attack_url, timeout=10)
+            response.raise_for_status()
+            return response
+        except requests.RequestException as e:
+            logger.error(f"Error during request to {attack_url}: {e}")
+            return None
 
-# URL 존재 여부 확인 함수
-def check_url_existence(url):
-    try:
-        response = requests.head(url, allow_redirects=True)
-        return response.status_code == 200
-    except requests.RequestException as e:
-        logger.error(f"Error checking URL existence: {url}, {e}")
-        return False
+    def check_url_existence(self, url):
+        try:
+            response = session.head(url, allow_redirects=True, timeout=10)
+            return response.status_code == 200
+        except requests.RequestException as e:
+            logger.error(f"Error checking URL existence: {url}, {e}")
+            return False
 
-# 민감 정보 노출 탐지 함수
-def check_information_disclosure(url):
-    sensitive_files = [".env", ".git", ".DS_Store", "config.php"]
-    vulnerable = False
+    def check_information_disclosure(self, url):
+        sensitive_files = [".env", ".git", ".DS_Store", "config.php", "web.config", "database.yml"]
+        debug_patterns = [
+            "exception", "error", "stack trace", "traceback", "debug", "line", "file", "fatal", "not found",
+            "permission denied", "unauthorized", "access denied", "undefined variable", "undefined index", "SQL"
+        ]
+        vulnerable = False
 
-    for file in sensitive_files:
-        response = requests.get(urljoin(url, file))
-        if response.status_code == 200:
-            logger.info(f"Sensitive file exposed: {file}")
-            vulnerable = True
-    return vulnerable
+        for file in sensitive_files:
+            file_url = urljoin(url, file)
+            try:
+                response = session.get(file_url, timeout=10)
+                if response.status_code == 200:
+                    logger.info(f"Sensitive file exposed: {file_url}")
+                    vulnerable = True
+            except requests.RequestException as e:
+                logger.error(f"Error during request to {file_url}: {e}")
 
-# 약한 비밀번호 강도 탐지 함수
-def check_weak_password_strength(password):
-    if (len(password) >= 8 and
-        re.search(r"[A-Z]", password) and
-        re.search(r"[a-z]", password) and
-        re.search(r"[0-9]", password) and
-        re.search(r"[!@#\$%\^&\*\(\)_\+\-=\[\]\{\};:'\"\\|,.<>\/?]", password)):
-        return False
-    return True
+        try:
+            response = session.get(url, timeout=10)
+            response.raise_for_status()
+            page_content = response.text.lower()
 
-# 위치 노출 탐지 함수
-def check_location_exposure(url):
-    response = requests.get(url)
-    ip_headers = ["X-Forwarded-For", "X-Real-IP", "Client-IP"]
-    gps_keywords = ["navigator.geolocation.getCurrentPosition"]
+            for pattern in debug_patterns:
+                if pattern in page_content:
+                    logger.info(f"Potential information disclosure detected at {url} with pattern: {pattern}")
+                    vulnerable = True
+        except requests.RequestException as e:
+            logger.error(f"Error during request to {url}: {e}")
 
-    for header in ip_headers:
-        if header in response.headers:
-            logger.info(f"Potential IP address exposure in header: {header} = {response.headers[header]}")
-            return True
-    
-    if any(keyword in response.text for keyword in gps_keywords):
-        logger.info(f"Potential GPS data exposure found in response.")
+        test_urls = [
+            f"{url}/nonexistentpage",
+            f"{url}?testparam=' OR 1=1 --"
+        ]
+
+        for test_url in test_urls:
+            try:
+                response = session.get(test_url, timeout=10)
+                response.raise_for_status()
+                page_content = response.text.lower()
+
+                for pattern in debug_patterns:
+                    if pattern in page_content:
+                        logger.info(f"Potential information disclosure detected at {test_url} with pattern: {pattern}")
+                        vulnerable = True
+            except requests.RequestException as e:
+                logger.error(f"Error during request to {test_url}: {e}")
+
+        return vulnerable
+
+    def check_password_strength_policy(self, url):
+        try:
+            response = session.get(url, timeout=10)
+            response.raise_for_status()
+            soup = BeautifulSoup(response.text, 'html.parser')
+            password_fields = soup.find_all('input', {'type': 'password'})
+            for password_field in password_fields:
+                form = password_field.find_parent('form')
+                if form:
+                    form_action = form.get('action')
+                    form_method = form.get('method', 'get').lower()
+                    form_url = urljoin(self.base_url, form_action)
+                    if self.check_password_policy(form):
+                        logger.info(f"Weak password policy detected at form {form_url} with method {form_method}")
+                        return True
+            return False
+        except requests.RequestException as e:
+            logger.error(f"Error during request to {url}: {e}")
+            return False
+
+    def check_password_policy(self, form):
+        patterns = {
+            "length": r".{8,}",
+            "uppercase": r"[A-Z]",
+            "lowercase": r"[a-z]",
+            "digit": r"[0-9]",
+            "special": r"[!@#\$%\^&\*\(\)_\+\-=\[\]\{\};:'\"\\|,.<>\/?]",
+            "no_common_passwords": r"^(?!(password|123456|12345678|admin|welcome)).*$",
+            "no_repeated_chars": r"^(?!.*(.)\1{2}).*$"
+        }
+        password_field_name = form.find('input', {'type': 'password'}).get('name')
+        for pattern_name, pattern in patterns.items():
+            if not re.search(pattern, password_field_name):
+                return False
         return True
 
-    return False
+    def check_location_exposure(self, url):
+        try:
+            response = session.get(url, timeout=10)
+            ip_headers = ["X-Forwarded-For", "X-Real-IP", "Client-IP", "X-Cluster-Client-IP"]
+            gps_keywords = ["navigator.geolocation.getCurrentPosition", "getCurrentPosition"]
 
-# 종합 보안 검사 함수
-def run_security_checks(base_url):
-    # 웹 사이트 크롤링 및 공격 벡터 수집
-    crawl(base_url, base_url)
+            for header in ip_headers:
+                if header in response.headers:
+                    logger.info(f"Potential IP address exposure in header: {header} = {response.headers[header]}")
+                    return True
+            
+            if any(keyword in response.text for keyword in gps_keywords):
+                logger.info(f"Potential GPS data exposure found in response.")
+                return True
 
-    # 각 공격 벡터에 대해 SQL 인젝션 검사
-    for url, method, inputs in attack_vectors:
-        if check_sql_injection(url, method, inputs):
-            logger.info(f"SQL Injection vulnerability detected at {url}")
-        else:
-            logger.info(f"No SQL Injection vulnerability detected at {url}")
-    
-    # 민감 정보 노출 검사
-    if check_information_disclosure(base_url):
-        logger.info("Information Disclosure vulnerability detected.")
-    else:
-        logger.info("No Information Disclosure vulnerability detected.")
+            soup = BeautifulSoup(response.text, 'html.parser')
+            if soup.find("meta", {"name": "geo.position"}):
+                logger.info(f"Potential GPS meta tag exposure found in response.")
+                return True
+        except requests.RequestException as e:
+            logger.error(f"Error during request to {url}: {e}")
 
-    # 약한 비밀번호 강도 검사
-    passwords = ["password", "P@ssw0rd", "12345678", "admin123"]
-    for pwd in passwords:
-        if check_weak_password_strength(pwd):
-            logger.info(f"Weak password detected: {pwd}")
-        else:
-            logger.info(f"Strong password: {pwd}")
-
-    # 위치 노출 검사
-    if check_location_exposure(base_url):
-        logger.info("Location Exposure vulnerability detected.")
-    else:
-        logger.info("No Location Exposure vulnerability detected.")
+        return False
 
 # 예제 실행
 base_url = "http://192.168.219.108"
-run_security_checks(base_url)
+scanner = WebScanner(base_url)
+scanner.run_security_checks()

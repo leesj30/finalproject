@@ -5,6 +5,7 @@ import re
 import logging
 import string
 import time
+import concurrent.futures
 
 # 로깅 설정
 logging.basicConfig(level=logging.INFO)
@@ -35,24 +36,25 @@ class WebScanner:
             logger.error(f"Error decoding file {filepath}: {e}")
             return []
 
-
     def run_security_checks(self):
-
         start_time = time.time()  # 시작 시간 기록
 
+        # 크롤링 수행
         self.crawl(self.base_url, self.depth)
-        
-        for url, method, inputs in self.attack_vectors:
-            if self.check_sql_injection(url, method, inputs):
-                logger.info(f"SQL Injection vulnerability detected at {url}")
-            else:
-                logger.info(f"No SQL Injection vulnerability detected at {url}")
-                
-            if self.check_xss(url, method, inputs):
-                logger.info(f"XSS vulnerability detected at {url}")
-            else:
-                logger.info(f"No XSS vulnerability detected at {url}")
-        
+
+        # 보안 검사 병렬 수행
+        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+            futures = []
+            for url, method, inputs in self.attack_vectors:
+                futures.append(executor.submit(self.check_sql_injection, url, method, inputs))
+                futures.append(executor.submit(self.check_xss, url, method, inputs))
+            
+            for future in concurrent.futures.as_completed(futures):
+                result = future.result()
+                if result:
+                    logger.info(result)
+
+        # 기타 보안 점검 동기적으로 수행
         if self.check_information_disclosure(self.base_url):
             logger.info("Information Disclosure vulnerability detected.")
         else:
@@ -82,6 +84,7 @@ class WebScanner:
             logger.info("File Download vulnerability detected.")
         else:
             logger.info("No File Download vulnerability detected.")
+        
         end_time = time.time()  # 종료 시간 기록
         total_time = end_time - start_time
         logger.info(f"Total time taken for security checks: {total_time:.2f} seconds")
@@ -92,7 +95,7 @@ class WebScanner:
         self.visited_urls.add(url)
         
         try:
-            response = session.get(url, timeout=10)
+            response = session.get(url, timeout=5)
             response.raise_for_status()
         except requests.RequestException as e:
             logger.error(f"Error during request to {url}: {e}")
@@ -135,20 +138,17 @@ class WebScanner:
                 response = self.send_payload(url, method, inputs, payload)
                 if response:
                     if "SLEEP" in payload and response.elapsed.total_seconds() > 5:
-                        logger.info(f"Time-based SQL Injection vulnerability detected at {url} with payload: {payload}")
-                        return True
+                        return f"Time-based SQL Injection vulnerability detected at {url} with payload: {payload}"
                     if any(pattern in response.text.lower() for pattern in patterns):
-                        logger.info(f"SQL Injection vulnerability detected at {url} with payload: {payload}")
-                        return True
-        return False
+                        return f"SQL Injection vulnerability detected at {url} with payload: {payload}"
+        return f"No SQL Injection vulnerability detected at {url}"
 
     def check_xss(self, url, method, inputs):
         for payload in self.xss_payloads:
             response = self.send_payload(url, method, inputs, payload)
             if response and payload in response.text:
-                logger.info(f"XSS vulnerability detected at {url} with payload: {payload}")
-                return True
-        return False
+                return f"XSS vulnerability detected at {url} with payload: {payload}"
+        return f"No XSS vulnerability detected at {url}"
 
     def send_payload(self, url, method, inputs, payload):
         if isinstance(inputs, dict):
@@ -188,7 +188,7 @@ class WebScanner:
 
     def check_url_existence(self, url):
         try:
-            response = session.head(url, allow_redirects=True, timeout=10)
+            response = session.head(url, allow_redirects=True, timeout=5)
             return response.status_code == 200
         except requests.RequestException as e:
             logger.error(f"Error checking URL existence: {url}, {e}")
@@ -341,7 +341,7 @@ class WebScanner:
         return False
 
     def check_file_download(self, url):
-        #원래라면 이게 맞을 것 같은데 현재 다운로드 페이지가 이게 맞는지 모르겠어서...테스트는 못하고 작성했습니다
+        # 원래라면 이게 맞을 것 같은데 현재 다운로드 페이지가 이게 맞는지 모르겠어서...테스트는 못하고 작성했습니다
         try:
             response = session.get(url, timeout=10)
             response.raise_for_status()
@@ -373,9 +373,6 @@ class WebScanner:
         except requests.RequestException as e:
             logger.error(f"Error during request to {url}: {e}")
             return False
-
-
-
 
 # 예제 실행
 base_url = "http://192.168.35.194"

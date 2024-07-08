@@ -99,74 +99,29 @@
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $userid = $_POST['userid'];
             $userpw = $_POST['userpw'];
-            
-            $sql = "SELECT userpw, login_attempts, last_attempt_time FROM user WHERE userid = :userid";
+
+            $sql = "SELECT userpw FROM user WHERE userid = :userid";
             $stmt = $pdo->prepare($sql);
             $stmt->bindParam(':userid', $userid, PDO::PARAM_STR);
             $stmt->execute();
-
+            
             if ($stmt->rowCount() > 0) {
                 $row = $stmt->fetch(PDO::FETCH_ASSOC);
                 $hashedPassword = $row['userpw'];
-                $loginAttempts = $row['login_attempts'];
-                $lastAttemptTime = $row['last_attempt_time'];
 
-            // 현재 시간과 마지막 로그인 시도 시간의 차이 계산
-            $currentTime = new DateTime();
-            $seconds = 0;  // $seconds 변수를 초기화
-                if ($lastAttemptTime) {
-                    $lastAttemptDateTime = new DateTime($lastAttemptTime);
-                    $interval = $currentTime->diff($lastAttemptDateTime);
-                    $seconds = $interval->days * 24 * 60 * 60 +
-                               $interval->h * 60 * 60 +
-                               $interval->i * 60 +
-                               $interval->s;
-                }
-                if ($loginAttempts < 5) {
-                    if (password_verify($userpw, $hashedPassword)) {
-                        $_SESSION['loggedin'] = true;
-                        $_SESSION['userid'] = $userid;
-                        echo "<script>alert('로그인을 성공하였습니다!');</script>";
-                        echo "<script>window.location.href='index.php';</script>";
-
-                        // 로그인 성공 시 로그인 시도 횟수와 마지막 시도 시간 초기화
-                        $sql = "UPDATE user SET login_attempts = 0, last_attempt_time = NULL WHERE userid = :userid";
-                        $stmt = $pdo->prepare($sql);
-                        $stmt->bindParam(':userid', $userid, PDO::PARAM_STR);
-                        $stmt->execute();
-
-                    } else {
-                        // 비밀번호가 틀리면 로그인 시도 횟수를 증가
-                        $loginAttempts++;
-                        $sql = "UPDATE user SET login_attempts = :login_attempts, last_attempt_time = NOW() WHERE userid = :userid";
-                        $stmt = $pdo->prepare($sql);
-                        $stmt->bindParam(':login_attempts', $loginAttempts, PDO::PARAM_INT);
-                        $stmt->bindParam(':userid', $userid, PDO::PARAM_STR);
-                        $stmt->execute();
-
-                        echo "<script>alert('로그인을 실패하였습니다! 5회 이상 틀릴 시 로그인이 제한됩니다. 실패 횟수: $loginAttempts');</script>";
-                    }
-                } 
-                else {
-                    // 5분(300초) 이상 지났으면 로그인 시도 횟수를 초기화
-                    if ($seconds > 300) {
-                        $loginAttempts = 0;
-                        $sql = "UPDATE user SET login_attempts = 0, last_attempt_time = NULL WHERE userid = :userid";
-                        $stmt = $pdo->prepare($sql);
-                        $stmt->bindParam(':userid', $userid, PDO::PARAM_STR);
-                        $stmt->execute();
-                    }  
-
-                    else{               
-                        echo "<script>alert('로그인 시도 횟수가 초과되었습니다. 5분 후에 다시 시도해주세요.');</script>";
-                    }
+                if (password_verify($userpw, $hashedPassword)) {
+                    $_SESSION['loggedin'] = true;
+                    $_SESSION['userid'] = $userid;
+                    echo "<script>alert('로그인을 성공하였습니다!');</script>";
+                    echo "<script>window.location.href='index.php';</script>";
+                } else {
+                    echo "<script>alert('로그인을 실패하였습니다!');</script>";
                 }
             } else {
                 echo "<script>alert('로그인을 실패하였습니다!');</script>";
             }
         }
         ?>
-
     </div>
 </body>
 </html>

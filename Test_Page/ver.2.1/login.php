@@ -87,8 +87,6 @@
             </div>
             <input type="submit" value="Login">
             <div class="link">
-                <p class="btn">아이디 찾기 <a href="find_id.php">find id</a></p>
-                <p class="btn">비밀번호 찾기 <a href="find_password.php">find password</a></p>
                 <p class="btn">회원가입 바로가기 <a href="join.php">Sign Up</a></p>
                 <p class="btn">메인 페이지로 <a href="index.php">Main page</a></p>
             </div>
@@ -102,11 +100,13 @@
             $userid = $_POST['userid'];
             $userpw = $_POST['userpw'];
 
-            $sql = "SELECT userpw FROM user WHERE userid='$userid'";
-            $result = $conn->query($sql);
-
-            if ($result->num_rows > 0) {
-                $row = $result->fetch_assoc();
+            $sql = "SELECT userpw FROM user WHERE userid = :userid";
+            $stmt = $pdo->prepare($sql);
+            $stmt->bindParam(':userid', $userid, PDO::PARAM_STR);
+            $stmt->execute();
+            
+            if ($stmt->rowCount() > 0) {
+                $row = $stmt->fetch(PDO::FETCH_ASSOC);
                 $hashedPassword = $row['userpw'];
 
                 if (password_verify($userpw, $hashedPassword)) {

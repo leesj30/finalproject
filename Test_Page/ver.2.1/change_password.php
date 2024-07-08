@@ -80,7 +80,7 @@
 <body>
     <div class="container">
         <h1>비밀번호 변경</h1>
-        <form action="" method="POST">
+        <form name="passwordForm" onsubmit="return sendit()" method="POST">
             <input type="password" name="new_password" placeholder="새 비밀번호" required>
             <input type="password" name="confirm_password" placeholder="새 비밀번호 확인" required>
             <input type="submit" value="비밀번호 변경">
@@ -124,5 +124,6 @@
         }
     }
     ?>
+    <script src="change_pw.js"></script>
 </body>
 </html>

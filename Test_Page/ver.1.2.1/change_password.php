@@ -109,8 +109,8 @@
             exit();
         }
 
-        $hashedPassword = password_hash($newPassword, PASSWORD_BCRYPT);
-        $sql = "UPDATE user SET userpw = '$hashedPassword' WHERE userid = '$userid'";
+        //$hashedPassword = password_hash($newPassword, PASSWORD_BCRYPT);
+        $sql = "UPDATE user SET userpw = '$newPassword' WHERE userid = '$userid'";
     
         if ($conn->query($sql) === TRUE) {
             echo "<script>alert('비밀번호가 성공적으로 변경되었습니다!');</script>";

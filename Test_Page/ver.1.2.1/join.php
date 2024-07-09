@@ -111,11 +111,11 @@
             $userpw_ch = $_POST['userpw_ch'];
             $Email = $_POST['Email'];
 
-            $hashedPassword = password_hash($userpw, PASSWORD_BCRYPT);
+            //$hashedPassword = password_hash($userpw, PASSWORD_BCRYPT);
 
             if($userpw === $userpw_ch){
-                $sql = "INSERT INTO User (username, userid, userpw, Email) VALUES ('$username', '$userid', '$hashedPassword', '$Email')";
-                $result = $conn->query($sql);
+                $sql = "INSERT INTO User (username, userid, userpw, Email) VALUES ('$username', '$userid', '$userpw', '$Email')";
+                $result = $pdo->query($sql);
 
                 echo "<script>alert('회원가입 되었습니다! 로그인을 시도해 주세요.');</script>";
                 echo "<script>location.href='login.php'</script>";

@@ -106,10 +106,7 @@
             $result = $conn->query($sql);
 
             if ($result->num_rows > 0) {
-                $row = $result->fetch_assoc();
-                $hashedPassword = $row['userpw'];
-
-                if (password_verify($userpw, $hashedPassword)) {
+                if (mysqli_num_rows($result)) {
                     $_SESSION['loggedin'] = true;
                     $_SESSION['userid'] = $userid;
                     echo "<script>alert('로그인을 성공하였습니다!');</script>";

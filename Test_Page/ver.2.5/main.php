@@ -124,29 +124,47 @@
             <?php
             include "db_conn.php";
             
-            if(isset($_GET['find_title'])) {
-                $find_title = $_GET['find_title'];
-                $sql = "SELECT id, title, writer, created_date FROM Posts WHERE title LIKE '%$find_title%'";
-            } else {
-                $sql = "SELECT id, title, writer, created_date FROM Posts";
+            function input_XSS($data){
+                return htmlspecialchars($data, ENT_QUOTES, 'UTF-8');
             }
             
-            $result = $conn->query($sql);
+            $find_title = input_XSS($_GET['find_title'] ?? '');
             
-            if($result && $result->num_rows > 0) {
+            if($find_title){
+                $sql = $conn->prepare("SELECT id, title, writer, created_date FROM Posts WHERE title LIKE ?");
+                $sql_title = "%$find_title%";
+                $sql->bind_param('s', $sql_title);
+            } 
+            
+            else{
+                $sql = $conn->prepare("SELECT id, title, writer, created_date FROM Posts");
+            }
+
+            $sql->execute();
+            $result = $sql->get_result();
+            
+            if($result && $result->num_rows > 0){
                 while ($row = $result->fetch_assoc()) {
-                    echo "<tr onclick='goBoard({$row['id']})'>";
-                    echo "<td>{$row['id']}</td>";
-                    echo "<td>{$row['title']}</td>";
-                    echo "<td>{$row['writer']}</td>";
-                    echo "<td>{$row['created_date']}</td>"; echo '<td><form method="POST" action="delete_post.php" style="margin:0;"><input type="hidden" name="id" value="' . $row["id"] . '"><input type="submit" value="삭제"></form></td>';
+                    $id = htmlspecialchars($row['id'], ENT_QUOTES, 'UTF-8');
+                    $title = htmlspecialchars($row['title'], ENT_QUOTES, 'UTF-8');
+                    $writer = htmlspecialchars($row['writer'], ENT_QUOTES, 'UTF-8');
+                    $created_date = htmlspecialchars($row['created_date'], ENT_QUOTES, 'UTF-8');
+                    
+                    echo "<tr onclick='goBoard($id)'>";
+                    echo "<td>$id</td>";
+                    echo "<td>$title</td>";
+                    echo "<td>$writer</td>";
+                    echo "<td>$created_date</td>";
+                    echo '<td><form method="POST" action="delete_post.php" style="margin:0;"><input type="hidden" name="id" value="' . $id . '"><input type="submit" value="삭제"></form></td>';
                     echo "</tr>";
                 }
             } 
+            
             else{
-                echo "<tr><td colspan='4'>게시물이 없습니다.</td></tr>";
+                echo "<tr><td colspan='5'>게시물이 없습니다.</td></tr>";
             }
             ?>
+            
         </table>
         <script>
             function goBoard(postid){

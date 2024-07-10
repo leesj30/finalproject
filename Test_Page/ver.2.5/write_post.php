@@ -127,10 +127,14 @@ function validate_filename($filename) {
     }
 }
 
-if ($_SERVER['REQUEST_METHOD'] == 'POST') {
-    $title = mysqli_real_escape_string($conn, $_POST['title'] ?? '');
-    $writer = mysqli_real_escape_string($conn, $_POST['writer'] ?? '');
-    $content = mysqli_real_escape_string($conn, $_POST['content'] ?? '');
+function input_XSS($data) {
+    return htmlspecialchars($data, ENT_QUOTES, 'UTF-8');
+}
+
+if($_SERVER['REQUEST_METHOD'] == 'POST'){
+    $title = input_XSS($_POST['title'] ?? '');
+    $writer = input_XSS($_POST['writer'] ?? '');
+    $content = input_XSS($_POST['content'] ?? '');
     $file = $_FILES['file'] ?? null;
     $upload_file = '';
 

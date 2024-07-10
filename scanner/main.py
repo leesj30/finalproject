@@ -1,8 +1,6 @@
 import argparse
-from testCLI import WebScanner
+from Vscanner import WebScanner
 
-
-#틀만 잡아놓은 메인입니다
 def main():
     parser = argparse.ArgumentParser(description='Web Security Scanner')
     parser.add_argument('url', help='Base URL of the website to scan')

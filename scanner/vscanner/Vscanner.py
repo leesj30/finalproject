@@ -102,12 +102,12 @@ class WebScanner:
         info_disclosure_result = self.check_information_disclosure(self.base_url)
         if info_disclosure_result:
             self.results.append(info_disclosure_result)
-            logger.info("정보 누출 취약점 발견")
+            logger.info("Information Disclosure Vulnerability Found")
 
         weak_password_result = self.check_weak_password()
         if weak_password_result:
             self.results.append(weak_password_result)
-            logger.info("약한 비밀번호 강도 취약점 발견")
+            logger.info("Weak Password Strength Vulnerability Found")
 
         location_exposure_result = self.check_location_exposure(self.base_url)
         if location_exposure_result:

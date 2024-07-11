@@ -342,7 +342,7 @@ class WebScanner:
 
     def check_information_disclosure(self, url):
         error_patterns = [
-            "version", "server", "apache", "nginx", "php", "sql", "database", "error"
+            "version", "server", "apache", "nginx", "php", "sql", "database"
         ]
         test_urls = [
             f"{url}/nonexistentpage",
@@ -407,19 +407,19 @@ class WebScanner:
         common_paths = [
             "admin", "login", "dashboard", "config", "backup", "uploads",
             "images", "files", "api", "user", "users", "private", "secret",
-            "data", "database", "db", "server-status", "phpinfo.php",'backdoor'
+            "data", "database", "db", "server-status", "phpinfo.php", "backdoor"
         ]
-        
+
         # 확장자 조합
         extensions = ["", ".php", ".html", ".asp", ".aspx", ".js", ".json"]
-        
+
         potential_paths = [path + ext for path, ext in itertools.product(common_paths, extensions)]
 
         for path in potential_paths:
             full_url = urljoin(base_url, path)
             try:
                 response = session.get(full_url, timeout=10)
-                if response.status_code == 200:
+                if response.status_code == 200 and "파일" in response.text:
                     result = {
                         "type": "Location Exposure",
                         "url": full_url,
@@ -429,7 +429,7 @@ class WebScanner:
             except requests.RequestException as e:
                 logger.error(f"Error during request to {full_url}: {e}")
                 continue
-        
+
         return False
 
 
